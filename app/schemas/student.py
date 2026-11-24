@@ -1,22 +1,57 @@
-from pydantic import BaseModel, ConfigDict
+
+from typing import Annotated, Self
+from uuid import UUID
+
+from pydantic import (
+    BaseModel, ConfigDict, EmailStr,
+    StringConstraints, model_validator
+)
+
+
+FullName = Annotated[
+    str, StringConstraints(min_length=5, max_length=120)
+]
+
+GroupCode = Annotated[
+    str, StringConstraints(pattern=r"^[A-ZА-ЯІЇЄҐ0-9]+-[0-9]{2}$")
+]
+
+StudyProgram = Annotated[
+    str, StringConstraints(min_length=2, max_length=100)
+]
 
 
 class StrictModel(BaseModel):
-    """Базова модель, яка не приймає невідомих полів."""
-
-    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True
+    )
 
 
 class StudentCreate(StrictModel):
-    # TODO: додайте full_name, email і group_code з обмеженнями.
-    pass
+    full_name: FullName
+    email: EmailStr
+    group_code: GroupCode
+    study_program: StudyProgram
 
 
 class StudentRead(StudentCreate):
-    # TODO: додайте серверний ідентифікатор id.
-    pass
+    id: UUID
 
 
 class StudentUpdate(StrictModel):
-    # TODO: оголосіть дозволені необов’язкові поля для часткового оновлення.
-    pass
+    full_name: FullName | None = None
+    email: EmailStr | None = None
+    group_code: GroupCode | None = None
+    study_program: StudyProgram | None = None
+
+    @model_validator(mode="after")
+    def validate_update(self) -> Self:
+        if not self.model_fields_set:
+            raise ValueError("Update must not be empty")
+
+        for field in self.model_fields_set:
+            if getattr(self, field) is None:
+                raise ValueError("Null values are not allowed")
+
+        return self
