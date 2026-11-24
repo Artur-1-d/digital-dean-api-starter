@@ -1,11 +1,14 @@
-"""Моделі API відокремлені від внутрішнього криптографічного конверта."""
-
 from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-Algorithm = Literal["AES-128-GCM", "AES-256-GCM", "ChaCha20-Poly1305"]
+
+Algorithm = Literal[
+    "AES-128-GCM",
+    "AES-256-GCM",
+    "ChaCha20-Poly1305"
+]
 
 
 class NoteCreate(BaseModel):
@@ -15,8 +18,17 @@ class NoteCreate(BaseModel):
     @field_validator("text")
     @classmethod
     def validate_text(cls, value: str) -> str:
-        """TODO: 1–4096 байтів UTF-8, не лише пробіли; не обрізати текст."""
-        raise NotImplementedError("Implement nonblank UTF-8 byte length validation")
+        if not value.strip():
+            raise ValueError("Text must not be blank")
+
+        if len(value.encode("utf-8")) > 4096:
+            raise ValueError("Text exceeds 4096 UTF-8 bytes")
+
+        return value
+
+
+class NoteUpdate(NoteCreate):
+    pass
 
 
 class NoteMetadata(BaseModel):
@@ -28,6 +40,3 @@ class NoteMetadata(BaseModel):
 
 class NoteRead(NoteMetadata):
     text: str
-
-
-# TODO: виконайте індивідуальний варіант, зберігаючи базові правила.
