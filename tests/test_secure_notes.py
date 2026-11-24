@@ -218,7 +218,24 @@ def test_patch_note(client, student_id):
     assert response.status_code == 422
 
 
-def test_benchmark_report_reader():
-    pytest.fail(
-        "Implement fixed-path benchmark report reader checks"
-    )
+def test_benchmark_report_reader(tmp_path, monkeypatch):
+    import json
+    from app.api import crypto_lab
+    report = crypto_lab.load_benchmark_report(crypto_lab.REPORT_PATH)
+    path = tmp_path / "report.json"
+    monkeypatch.setattr(crypto_lab, "REPORT_PATH", path)
+    url = "/api/v1/lab/crypto/benchmark-results"
+    with TestClient(app) as c:
+        assert c.get(url).status_code == 404
+        path.write_text(json.dumps(report), encoding="utf-8")
+        response = c.get(url)
+        assert response.status_code == 200
+        assert response.json() == report
+        assert len(response.json()["results"]) == 36
+        path.write_text("invalid json", encoding="utf-8")
+        response = c.get(url)
+        assert response.status_code == 500
+        assert response.json() == {"detail": "Benchmark results unavailable"}
+        report["results"].pop()
+        path.write_text(json.dumps(report), encoding="utf-8")
+        assert c.get(url).status_code == 500
