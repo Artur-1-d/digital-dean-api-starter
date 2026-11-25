@@ -1,6 +1,8 @@
-"""Fixed educational PBKDF2 profile; do not reuse the fast hashes from lab 4."""
+
+"""Fixed educational PBKDF2 password profile."""
 import hashlib
 import hmac
+import re
 import secrets
 
 ALGORITHM = "pbkdf2_sha256"
@@ -13,36 +15,78 @@ MAX_PASSWORD_BYTES = 512
 
 
 def password_bytes(password: str, *, registration: bool = False) -> bytes:
-    """Preserve whitespace/case; encode strict UTF-8, bounded before the KDF."""
     if not isinstance(password, str):
         raise ValueError("password must be text")
+
     minimum = MIN_PASSWORD_CHARS if registration else 1
-    if not minimum <= len(password) <= MAX_PASSWORD_CHARS or "\x00" in password:
+
+    if not minimum <= len(password) <= MAX_PASSWORD_CHARS:
         raise ValueError("password length or characters invalid")
+
+    if "\x00" in password:
+        raise ValueError("password length or characters invalid")
+
     try:
         raw = password.encode("utf-8", errors="strict")
     except UnicodeEncodeError as exc:
         raise ValueError("password encoding invalid") from exc
+
     if len(raw) > MAX_PASSWORD_BYTES:
         raise ValueError("password byte length invalid")
+
     return raw
 
 
 def make_password_record(password: str) -> tuple[str, str]:
-    """Return (password_record, salt_hex), never the cleartext password.
+    raw = password_bytes(password, registration=True)
+    salt = secrets.token_bytes(SALT_BYTES)
 
-    TODO: use a fresh secrets.token_bytes(SALT_BYTES), PBKDF2-HMAC-SHA256,
-    and lowercase hex. Record format is pbkdf2_sha256$600000$<64 hex chars>.
-    The salt is stored separately as exactly 32 lowercase hex characters.
-    """
-    raise NotImplementedError("TODO: create a salted password record")
+    derived = hashlib.pbkdf2_hmac(
+        "sha256",
+        raw,
+        salt,
+        ITERATIONS,
+        dklen=DERIVED_BYTES,
+    )
+
+    record = f"{ALGORITHM}${ITERATIONS}${derived.hex()}"
+
+    return record, salt.hex()
 
 
 def verify_password(password: str, record: str, salt_hex: str) -> bool:
-    """TODO: bounded strict parsing, fixed supported profile, compare_digest.
+    try:
+        raw = password_bytes(password)
 
-    Return False for wrong passwords and malformed/unsupported stored values.
-    Do not run the KDF with an arbitrary iteration count from the database.
-    Do not trim or case-convert the password. Never log these arguments.
-    """
-    raise NotImplementedError("TODO: verify a password without secret output")
+        if not isinstance(record, str):
+            return False
+
+        if not isinstance(salt_hex, str):
+            return False
+
+        if re.fullmatch(r"[0-9a-f]{32}", salt_hex) is None:
+            return False
+
+        match = re.fullmatch(
+            r"pbkdf2_sha256\$600000\$([0-9a-f]{64})",
+            record,
+        )
+
+        if match is None:
+            return False
+
+        salt = bytes.fromhex(salt_hex)
+        expected = bytes.fromhex(match.group(1))
+
+        derived = hashlib.pbkdf2_hmac(
+            "sha256",
+            raw,
+            salt,
+            ITERATIONS,
+            dklen=DERIVED_BYTES,
+        )
+
+        return hmac.compare_digest(derived, expected)
+
+    except (ValueError, TypeError):
+        return False
