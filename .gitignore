@@ -11,3 +11,4 @@ htmlcov/
 *.pem
 *.key
 *.egg-info/
+/var/
