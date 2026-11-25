@@ -10,7 +10,7 @@ from app.security.keys import create_process_key
 
 app = FastAPI(
     title="Digital Dean API",
-    version="0.3.0",
+    version="0.4.0",
     description="Навчальний API системи «Цифровий деканат»",
 )
 
