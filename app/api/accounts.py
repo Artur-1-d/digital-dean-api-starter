@@ -85,12 +85,12 @@ def delete_user(
     except UserReferenced:
         raise HTTPException(
             status_code=409,
-            detail="user is referenced by grades",
+            detail="user has grade references",
         ) from None
     except sqlite3.Error:
         raise HTTPException(
             status_code=500,
-            detail="database error",
+            detail="database unavailable",
         ) from None
 
 
