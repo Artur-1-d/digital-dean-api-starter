@@ -121,4 +121,4 @@ def test_invalid_report_before_filter(
 
 
 def test_api_version():
-    assert app.version == "0.4.0"
+    assert app.version == "0.5.0"
