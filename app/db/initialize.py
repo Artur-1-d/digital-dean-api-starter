@@ -1,4 +1,6 @@
-"""Student task: atomic, repeatable schema creation and lookup initialization."""
+
+"""Atomic and repeatable SQLite database initialization."""
+import sqlite3
 from pathlib import Path
 
 from app.db.connection import DB_PATH, open_database, write_transaction
@@ -6,14 +8,45 @@ from app.db.schema import DDL_STATEMENTS, ROLE_ROWS, STATUS_ROWS
 
 
 def initialize_database(path: Path = DB_PATH) -> None:
-    """Create parent directory and all tables; preserve users on repeat runs.
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
 
-    TODO: run each DDL statement and parameterized seed insert inside one
-    write_transaction. Never use INSERT OR REPLACE. Verify the exact fixed
-    lookup rows; reject a mismatch instead of overwriting it. Do not use
-    executescript for this transaction. No DROP or DELETE of user data.
-    """
-    raise NotImplementedError("TODO: initialize the six-table database")
+    with open_database(path) as connection:
+        with write_transaction(connection):
+            for statement in DDL_STATEMENTS:
+                connection.execute(statement)
+
+            connection.executemany(
+                "INSERT INTO status (id, name) VALUES (?, ?) "
+                "ON CONFLICT(id) DO NOTHING",
+                STATUS_ROWS,
+            )
+
+            connection.executemany(
+                "INSERT INTO role (id, name) VALUES (?, ?) "
+                "ON CONFLICT(id) DO NOTHING",
+                ROLE_ROWS,
+            )
+
+            statuses = tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT id, name FROM status ORDER BY id"
+                )
+            )
+
+            roles = tuple(
+                tuple(row)
+                for row in connection.execute(
+                    "SELECT id, name FROM role ORDER BY id"
+                )
+            )
+
+            if statuses != STATUS_ROWS:
+                raise ValueError("Invalid status lookup")
+
+            if roles != ROLE_ROWS:
+                raise ValueError("Invalid role lookup")
 
 
 if __name__ == "__main__":
