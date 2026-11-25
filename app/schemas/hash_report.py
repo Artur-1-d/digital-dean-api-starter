@@ -109,8 +109,159 @@ class HashResponse(HashReport):
 
 
 def validate_report(data: object) -> HashReport:
-    # TODO HashReport.model_validate, then exact coverage and unique tuples.
-    # TODO allowed unavailable states, real UTC date, sizes, digest lengths,
-    # repeats, throughput, avalanche bounds/fractions, and check coverage.
-    # A passed=False check is valid diagnostic data and must not disappear.
-    raise NotImplementedError("Implement complete hash report validation")
+    from datetime import datetime, timedelta
+    from math import isclose
+
+    from app.security.hashing.profiles import (
+        PROFILES,
+        PAYLOAD_SIZES,
+        CHECK_NAMES,
+        repeat_count,
+    )
+
+    report = HashReport.model_validate(data)
+
+    def require(condition, message):
+        if not condition:
+            raise ValueError(message)
+
+    created = datetime.fromisoformat(
+        report.created_at.replace("Z", "+00:00")
+    )
+
+    require(
+        created.utcoffset() == timedelta(0),
+        "UTC timestamp required",
+    )
+
+    require(
+        report.parameters.sizes == list(PAYLOAD_SIZES),
+        "invalid payload sizes",
+    )
+
+    algorithms = [row.algorithm for row in report.algorithms]
+
+    require(
+        len(algorithms) == len(set(algorithms))
+        and set(algorithms) == set(PROFILES),
+        "invalid algorithm coverage",
+    )
+
+    available = set()
+
+    for row in report.algorithms:
+        if row.available:
+            require(
+                row.reason is None
+                and bool(row.implementation)
+                and bool(row.implementation.strip()),
+                "invalid available status",
+            )
+            available.add(row.algorithm)
+        else:
+            require(
+                row.algorithm in ("md5", "sha1")
+                and row.reason == "not_available_in_environment"
+                and row.implementation is None,
+                "invalid unavailable status",
+            )
+
+    expected_results = {
+        (algorithm, mode, size)
+        for algorithm in available
+        for mode in ("whole", "chunked")
+        for size in PAYLOAD_SIZES
+    }
+
+    actual_results = [
+        (row.algorithm, row.mode, row.payload_bytes)
+        for row in report.results
+    ]
+
+    require(
+        len(actual_results) == len(set(actual_results))
+        and set(actual_results) == expected_results,
+        "invalid performance coverage",
+    )
+
+    for row in report.results:
+        require(
+            row.digest_bytes
+            == PROFILES[row.algorithm].digest_bytes,
+            "invalid digest length",
+        )
+
+        require(
+            row.repeats == repeat_count(row.payload_bytes),
+            "invalid repeat count",
+        )
+
+        expected_throughput = (
+            row.payload_bytes * 1e9
+            / (2**20 * row.median_ns)
+        )
+
+        require(
+            isclose(
+                row.throughput_mib_s,
+                expected_throughput,
+                rel_tol=1e-6,
+            ),
+            "invalid throughput",
+        )
+
+    avalanche_algorithms = [
+        row.algorithm for row in report.avalanche
+    ]
+
+    require(
+        len(avalanche_algorithms)
+        == len(set(avalanche_algorithms))
+        and set(avalanche_algorithms) == available,
+        "invalid avalanche coverage",
+    )
+
+    for row in report.avalanche:
+        bits = PROFILES[row.algorithm].digest_bytes * 8
+
+        require(
+            row.digest_bits == bits,
+            "invalid avalanche digest length",
+        )
+
+        require(
+            0 <= row.min_flipped_bits
+            <= row.mean_flipped_bits
+            <= row.max_flipped_bits
+            <= bits,
+            "invalid avalanche bounds",
+        )
+
+        require(
+            isclose(
+                row.mean_fraction,
+                row.mean_flipped_bits / bits,
+                rel_tol=1e-6,
+                abs_tol=1e-9,
+            ),
+            "invalid avalanche fraction",
+        )
+
+    expected_checks = {
+        (algorithm, name)
+        for algorithm in available
+        for name in CHECK_NAMES
+    }
+
+    actual_checks = [
+        (row.algorithm, row.name)
+        for row in report.checks
+    ]
+
+    require(
+        len(actual_checks) == len(set(actual_checks))
+        and set(actual_checks) == expected_checks,
+        "invalid correctness coverage",
+    )
+
+    return report
